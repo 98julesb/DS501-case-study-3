@@ -1,0 +1,282 @@
+---
+title: "Cement EDA"
+author: "Julianna Bernardi"
+date: "7/25/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(gridExtra)
+library(grid)
+library(shiny)
+library(dplyr)
+library(ggplot2)
+library(kableExtra)
+
+theme_set(theme_bw())
+
+# Supporting functions ----
+g_legend<-function(a.gplot){
+  tmp <- ggplot_gtable(ggplot_build(a.gplot))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  return(legend)}
+
+grid_arrange_shared_legend <-
+  function(...,
+           ncol = length(list(...)),
+           nrow = 1,
+           position = c("bottom", "right")) {
+    
+    plots <- list(...)
+    position <- match.arg(position)
+    g <-
+      ggplotGrob(plots[[1]] + theme(legend.position = position))$grobs
+    legend <- g[[which(sapply(g, function(x)
+      x$name) == "guide-box")]]
+    lheight <- sum(legend$height)
+    lwidth <- sum(legend$width)
+    gl <- lapply(plots, function(x)
+      x + theme(legend.position = "none"))
+    gl <- c(gl, ncol = ncol, nrow = nrow)
+    
+    combined <- switch(
+      position,
+      "bottom" = arrangeGrob(
+        do.call(arrangeGrob, gl),
+        legend,
+        ncol = 1,
+        heights = unit.c(unit(1, "npc") - lheight, lheight)
+      ),
+      "right" = arrangeGrob(
+        do.call(arrangeGrob, gl),
+        legend,
+        ncol = 2,
+        widths = unit.c(unit(1, "npc") - lwidth, lwidth)
+      )
+    )
+    
+    grid.newpage()
+    grid.draw(combined)
+    
+    # return gtable invisibly
+    invisible(combined)
+    
+  }
+
+# Read data ----
+slump_dat <- read.csv("slump_test.csv") %>%
+  rename(
+    "fly_ash" = "Fly.ash",
+    "course_agg" = "Coarse.Aggr.",
+    "fine_agg" = "Fine.Aggr.",
+    "slump" = "SLUMP.cm.",
+    "flow" = "FLOW.cm.",
+    "compstrength" = "Compressive.Strength..28.day..Mpa."
+  ) %>% select(-No)
+colnames(slump_dat) <- tolower(colnames(slump_dat))
+target_vars <- c("slump", "flow", "compstrength")
+
+cols_to_pretty <- c(
+  "cement" = "Cement (kg)",
+  "slag" = "Slag (kg)",
+  "fly_ash" = "Fly Ash (kg)",
+  "water" = "Water (kg)",
+  "sp" = "Superplasticizer (kg)",
+  "course_agg" = "Course Aggregate (kg)",
+  "fine_agg" = "Fine Aggregate (kg)",
+  "slump" = "Slump (cm)",
+  "flow" = "Flow (cm)",
+  "compstrength" = "28 Day Compressive Strength (Mpa)"
+  
+)
+pretty_to_cols <- setNames(names(cols_to_pretty), cols_to_pretty)
+
+clean_dat <- slump_dat %>%
+  rename(pretty_to_cols)
+
+
+```
+
+## Introduction
+
+It's important to pick the proper cement composite material to ensure that the flow is such that it has the expected strength and durability. The integrity of the structures the cement is used for depends on this expectation being met properly. But it is known that the concrete is a very complex material with many composite components and properties, all of which contribute to its strength. The following analyses examines the associations between seven cement characteristics and its corresponding slump, flow, and 28-day compression strength.
+
+The data is the Concrete Slump Test Data Set taken from [UC Irvine's Machine Learning Repository](http://archive.ics.uci.edu/ml), donated by I-Cheng Yeh in the Department of Information Management, Chung-Hua University (Republic of China) in 2009.
+
+This report is a high level exploratory data analysis (EDA) to find patterns, errors, and characteristics of the data. These results will help us understand the data and provide context for our linear models.
+
+**Motivation**
+
+I chose this data set for a few reasons: 1) It is quite small. So small that complex machine learning methods might not be appropriate and I wanted to view the data from a traditional statistical perspective; 2) My sister is a Civil Engineer and has worked with concrete, and I've never applied my data science background to engineering disciplines or data, so I thought it would prove interesting; and 3) I am more interested in examining data that is not directly profit-oriented (such as customer churn data). Analyzing and drawing conclusions from data that can have physical consequences is more exciting and fullfilling to me.
+
+
+## Data Summary
+
+The dimensions of the data are
+```{r , echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+# Dimensions
+dims <- dim(slump_dat)
+cat(paste(dims, collapse = " by "))
+```
+, with the following attributes:
+
+```{r data_info1, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+# Data info ----
+# Columns
+cols <- colnames(slump_dat)
+
+
+d <- data.frame(
+  "Column Name" = cols,
+  "Column Name (Long)" = cols_to_pretty[cols],
+  check.names = F
+)
+
+kable(d, row.names = F) %>%
+  kable_styling(bootstrap_options = c("striped"))
+
+```
+
+where `slump`, `flow`, and `compstrength` are our three target variables. The slump is a measure of consistency of fresh concrete before it sets; the flow table test, or flow test is also a measure of consistency, but is used for concrete that is too fluid to be measured using the slump test. Both of these are measured in centimeters; and `compstrength` or 28-day compressive strength, is the final measure of resistance to breaking of the concrete after it's been cured for 28 days, in Mega Pascals. The independent variables are simply materials found in the concrete mixture, thus they are measured in kilograms per one cubic meter of concrete.
+
+
+```{r data_info2, echo=TRUE, message=FALSE, warning=FALSE, results='hold'}
+# Summary
+sums <- summary(slump_dat)
+cat((paste0("The summary of the data:\n")))
+print(sums)
+
+# Summary of standard deviation
+sd_sum <- sapply(slump_dat, sd, na.rm = T)
+names(sd_sum) <- cols_to_pretty[names(sd_sum)]
+cat(paste0("\nThe standard deviation of each column:\n"))
+print(sd_sum)
+
+# Number of missing values
+missing <- sapply(colnames(slump_dat), function(x){
+  length(which(is.na(slump_dat[[x]])))
+})
+names(missing) <- cols_to_pretty[names(missing)]
+cat(paste0("\nNumber of missing values in eac column:\n"))
+print(missing)
+
+```
+
+The distributions of each column show that the mean and median are fairly close, with the exception of `slag`, which shows the mean to be about 20 units lower than the mean, indicating that there might be some small outliers. The summary of the standard deviation of each column is meant to describe the variance of the variables. All of the variables' standard deviations are fairly high, indicating that they have a wide range or high variance. These characteristics will be shown visually below. There is no missing data in the data set, so we do not have to worry about treating missing values.
+
+### Distributions
+#### Histograms
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=10, fig.height=8}
+# Distribution of variables ----
+# Histograms
+h_plots <- list()
+for (i in 1:(ncol(clean_dat))){
+  
+  g <- ggplot(clean_dat)+
+    geom_histogram(aes_(x = as.name(colnames(clean_dat)[i])),
+                   col = "grey", alpha = .6, bins = 20)
+  
+  
+  h_plots[[paste0('g', i)]] <- g
+}
+do.call("grid.arrange", c(h_plots, ncol = 3))
+```
+
+We can see that water, course aggregate, fine aggregate, and compressive strength are roughly normally distributed. Slag also appears roughly normal, with a large count of 0. Fly ash similarly has a large quantity of 0s. Superplasticizer is slightly right skewed, while slump and flow are slightly left skewed. Slag and fly ash are composites that can or cannot be found in certain types of cement, so the large quanities of 0s tell us that those cement samples had no slag or no fly ash in them.
+
+#### Boxplots
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=10, fig.height=10}
+# Boxplots
+b_plots <- list()
+for (i in 1:(ncol(slump_dat))){
+  xvar_title <- colnames(clean_dat)[i]
+  xvar <- colnames(slump_dat)[i]
+  g <- ggplot(slump_dat)+
+    geom_boxplot(aes_string(y = xvar))+
+    xlab("")+
+    ylab("")+
+    ggtitle(xvar_title)+
+    theme(legend.position="none",
+          plot.title = element_text(size = 13))
+  
+  
+  b_plots[[paste0('g', i)]] <- g
+}
+do.call("grid.arrange", c(b_plots, ncol = 3))
+```
+
+The box plots show that the distribution of most of our variables are fairly wide, reiterating our assumptions earlier that the variables have high variance. There are very few outliers in the data, and they are not far from the range in each variable, so we will not exclude them from our analysis. Cement and slag, in particular, have a very wide quartile range. We know tht slag had a very high proportion of 0s, which may skew our model. Otherwise, the distributions look clean and uniform, with few outliers.
+
+## Examining linear relationships
+
+The following plots show the relationship between each independent variable and the target variables. This will give us an initial visualization of univariate relationships in the data. If we can see a clear linear relationship between one of the independent and dependent variables, we know from the outset that it will be a good idea to include that variable in our model, so we can then assess the strength and significance of that relationship. Since we are implementing multiple linear regression, 2-dimensional visualizations might not show higher-dimensional linear relationships in the data, but it is still useful for finding any simple or obvious associations in the data.
+
+### Slump
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=10, fig.height=8}
+# scatter plots against slump
+s_plots <- list()
+vars <- cols_to_pretty[names(slump_dat)[-match(target_vars, names(slump_dat))]]
+for (i in 1:length(vars)){
+  xvar <- vars[i]
+  yvar <- cols_to_pretty["slump"]
+  g <- ggplot(clean_dat)+
+    geom_point(aes_(x = as.name(xvar), y = as.name(yvar)), alpha = .6)
+  
+  if (i %% 3 - 1 != 0){
+    g <- g + ylab("")
+  }
+  
+  s_plots[[paste0('g', i)]] <- g
+}
+do.call("grid.arrange", c(s_plots, ncol = 3))
+```
+
+### Flow
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=10, fig.height=8}
+s_plots <- list()
+for (i in 1:length(vars)){
+  xvar <- vars[i]
+  yvar <- cols_to_pretty["flow"]
+  g <- ggplot(clean_dat)+
+    geom_point(aes_(x = as.name(xvar), y = as.name(yvar)), alpha = .6)
+  
+  if (i %% 3 - 1 != 0){
+    g <- g + ylab("")
+  }
+  
+  s_plots[[paste0('g', i)]] <- g
+}
+do.call("grid.arrange", c(s_plots, ncol = 3))
+```
+
+### Compressive Strength
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=10, fig.height=8}
+s_plots <- list()
+for (i in 1:length(vars)){
+  xvar <- vars[i]
+  yvar <- cols_to_pretty["compstrength"]
+  g <- ggplot(clean_dat)+
+    geom_point(aes_(x = as.name(xvar), y = as.name(yvar)), alpha = .6)
+  
+  if (i %% 3 - 1 != 0){
+    g <- g + ylab("")
+  }
+  
+  s_plots[[paste0('g', i)]] <- g
+}
+do.call("grid.arrange", c(s_plots, ncol = 3))
+
+```
+
+None of the variables show a strong linear association with any of the three target variables, but water, course aggregate, and fine aggregate show a stronger relationship than the others. Because there is a high variance and a small number of data points, it's not clear that these relationships are linear, but our model assessments will give us more information at that point. There seems to be little to no linear association between slag, fly ash and the target variables. This does not mean that there is no association at all, however. There could be a linear association in a higher dimensional space, which is what methods such as principal component analysis (PCA) could explore. For our purposes, we are not going to perform PCA, but this would be an interesting analysis.
+
+These results tell us from the outset that the univariate relationships between our variables and the target variables are not necessarily linear, but a multivariate linear model, nonetheless, will still tell us what variables are associated with the target variables (holding the other variables at their means) and reveal multivariate linear relationships that we can't see in our two-dimensional plots.
+
+Since the data is very clean, i.e. there are no missing values, clear data entry errors, or outliers, no processing was done before model building and evaluation.
