@@ -86,8 +86,15 @@ ui <- navbarPage(
             ))
     ),
     tabPanel(
-        # About tab ----
-        title = "About",
+        # Linear Regression ----
+        title = "Linear Regression",
+        fluidRow(
+            includeScript(rmarkdown::render("linear_regression_overview.Rmd"))
+        )
+    ),
+    tabPanel(
+        # EDA tab ----
+        title = "Exploratory Data Analysis",
         fluidRow(
             includeScript(rmarkdown::render("cement_EDA.Rmd"))
             # tags$script(src = "cement_EDA.Rmd")
@@ -136,7 +143,8 @@ server <- function(input, output) {
             geom_point(aes(x = fitted, y = outcome), alpha = .6)+
             xlab("Fitted Values")+
             ylab(input$target_var)+
-            geom_abline(lty = 2, col = "blue")
+            ggtitle("Target Versus Fitted Values")
+        geom_abline(lty = 2, col = "blue")
     })
     
     # Predictors versus outcome

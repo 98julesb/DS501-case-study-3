@@ -1,0 +1,135 @@
+---
+title: "Linear Regression"
+author: "Julianna Bernardi"
+date: "7/28/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(ggplot2)
+library(kableExtra)
+
+theme_set(theme_bw())
+
+slump_dat <- read.csv("slump_test.csv") %>%
+  rename(
+    "fly_ash" = "Fly.ash",
+    "course_agg" = "Coarse.Aggr.",
+    "fine_agg" = "Fine.Aggr.",
+    "slump" = "SLUMP.cm.",
+    "flow" = "FLOW.cm.",
+    "compstrength" = "Compressive.Strength..28.day..Mpa."
+  ) %>% select(-No)
+colnames(slump_dat) <- tolower(colnames(slump_dat))
+target_vars <- c("slump", "flow", "compstrength")
+```
+
+## What is Linear Regression?
+Linear regression is a type of regression model that assumes the relationship between the input and output values is linear. This means that for a constant change in an input variable, holding all other variables at their means (in the case of multiple linear regression), the output changes linearly with constant slope (a straight line).
+
+Linear regression can only be used to model a scalar output, it is not suitable for binary classification or handling categorical output variables. Since the cement data we're working with is all continuous, it is not unreasonable to use linear regression.
+
+Mathematically, we can model a scalar output variable by building an equation that is a linear combination of the input variables with unknown scalar coefficients, denoted as
+
+$$
+\begin{aligned}
+y_i = \beta_0 + \beta_1x_{i1} + \beta_2x_{i2} + \dots \beta_jx_{ij} + \epsilon_i, \quad i = 1, \dots, n
+\end{aligned}
+$$
+where $y_i$ is the variable we're predicting, in our case either slump, flow, or compressive strength; $\beta$ are our estimated coefficients; $x_i$ is a vector of $n$ explanatory variables; and $\epsilon$ is our random error term. The $\beta$ coefficients are estimated using a method called least squares, which aims at minimizing the sum of the mean squared error between the fitted value and the actual value.
+
+### Assumptions
+
+There are many assumptions one must make when using linear regression to model a predictor variable, but we'll only cover the main ones.
+
+- We've already gone over the biggest one, which is linearity: the relationship between the input variables and the output variable is linear.
+- Constant variance: The variability of our response or output variable doesn't change.
+- Independence of errors: The error of our predictions aren't correlated. That is, they should be random and unpredictable.
+- No multicollinearity: The explanatory or input variables aren't linearly correlated with one another.
+
+
+
+### Output Metrics
+
+There are a few metrics to determine whether the linear regression model is a good fit or not and whether there is an association between the explanatory variables and the response variables.
+
+- Model coefficients: tell us how much the independent variables changes given a one unit change in the explanatory variable while holding all other variables at their means. If the coefficient is very large, the dependent variable is sensitive to small changes in the independent variables, and vice versa. 
+- $p$-value: is a number that indicates whether the estimated $\beta$ coefficient for the given explanatory variable is statistically different from zero. That is, changes in the input variable _are_ associated with changes in the output variable. $p$-values of less than 0.05 are considered statistically significant.
+- $R^2$: is a measurement of the strength of the linear relationship between the input variables and the output variable in our model. It denotes the proportion of variation the linear model captures in predicting the dependent variable. This number ranges between 0 and 1, with 0 indicating no linear relationship, and 1 indicating a perfect linear relationship.
+- Residual plot: shows the difference between our predicted (or fitted) values and the actual values against the fitted values. In other words, it plots the errors of our predictions. To test that there is linearity, constant variance and independent errors, we expect our residual plot to be roughly randomly scattered around 0.
+
+## An Example with Cement Compressive Strength
+We built a multiple linear regression model to predict 28-day compressive strength using the following input variables:
+
+- Fly Ash
+- Cement
+- Water
+- Course Aggregate
+- Fine Aggregate
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# Build model
+linear_model <-
+  lm(data = slump_dat,
+     compstrength ~ fly_ash + cement + water + slag + fine_agg)
+
+# Show results
+summary(linear_model)
+```
+
+
+We can see that the $p$-value of all our variables are less than 0.05 and thus statistically significant. Our $R^2$ and adjusted $R^2$ values are both about 0.88, which indicates that our model could be a good fit. To be sure, we should look at our residual plot:
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, fig.align='center'}
+resids <- data.frame(residuals = linear_model$residuals,
+                         fitted = linear_model$fitted.values)
+    
+    ggplot(resids)+
+      geom_point(aes(x = fitted, y = residuals), alpha = .6)+
+      geom_hline(yintercept = 0.0, lty = 2)+
+      ggtitle("Residual Plot")
+```
+
+
+There doesn't seem to be any clear correlations or non-random patterns in the residuals, and they are more or less scattered around 0. There is a slight U-shape, but it is hard to tell whether that is due to chance or not. It appears that our assumptions are satisfied and we can be confident that our model is reliable.
+
+We can do one last check to make sure that there is no multicollinearity in our explanatory variables:
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+explanatory_vars <- slump_dat %>%
+  select(fly_ash, cement, water, slag, fine_agg)
+
+pairs(explanatory_vars, upper.panel = NULL)
+```
+
+
+There are no clear linear relationships between the independent variables, but we will look at their Pearson correlation coefficients just to make sure.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+cor(explanatory_vars)
+```
+
+
+The independent variables all have relatively low correlation coefficients, with the highest being -.48 between cement and fly ash. Since none of the linear correlations are very strong, we can conclude that there is no collinearity between any two of the explanatory variables and our model should be reliable.
+
+Congrats! We just built a linear regression model to describe the associations between cement properties and its compressive strength. There is a significant association between compressive strength and the amount of fly ash, cement, water, slag, and fine aggregate. The interpretation of the fly ash coefficient is: for a one kilogram increase in fly ash, there is roughly a 0.06 Mega Pascal increase in compressive strength, while holding cement, water, slag, and fine aggregate constant. The other model coefficients can be interpreted similarly.
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+temp <- data.frame(
+      fitted = linear_model$fitted,
+      outcome = slump_dat$compstrength
+    )
+    
+    ggplot(temp)+
+      geom_point(aes(x = fitted, y = outcome), alpha = .6)+
+      xlab("Fitted Values")+
+      ylab("28-Day Compressive Strength")+
+      geom_abline(lty = 2, col = "blue")
+
+```
+
