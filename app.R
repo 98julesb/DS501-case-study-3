@@ -8,7 +8,7 @@ library(dplyr)
 library(ggplot2)
 library(aod)
 
-setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+# setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
 slump_dat <- read.csv("slump_test.csv") %>%
     rename(
